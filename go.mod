@@ -4,6 +4,7 @@ go 1.25.4
 
 require (
 	github.com/BurntSushi/toml v1.5.0
+	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/spf13/cobra v1.10.1
 	golang.org/x/oauth2 v0.33.0
 	google.golang.org/api v0.256.0

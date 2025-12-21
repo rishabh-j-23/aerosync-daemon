@@ -12,6 +12,9 @@ type Config struct {
 	SyncPaths    []string `toml:"sync_paths"`
 	Provider     string   `toml:"provider"`      // e.g., "gdrive"
 	SyncInterval string   `toml:"sync_interval"` // e.g., "1h", "30m"
+	Versioning   bool     `toml:"versioning"`    // Enable versioning (default true)
+	MaxVersions  int      `toml:"max_versions"`  // Number of versions to keep (default 3)
+	Ignore       []string `toml:"ignore"`        // Patterns to ignore (e.g., [".git", "*.log"])
 }
 
 func LoadConfig() (*Config, error) {

@@ -8,8 +8,8 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "aerosync",
-	Short: "Aerosync background sync service",
-	Long:  `Aerosync is a background service for syncing local paths to cloud storage.`,
+	Short: "Aerosync background sync service with versioning",
+	Long:  `Aerosync is a background service for syncing local paths to cloud storage with automatic versioning and restore capabilities.`,
 }
 
 func Execute() {

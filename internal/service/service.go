@@ -45,7 +45,7 @@ func (s *Service) Start() {
 
 	// Run initial sync
 	log.Println("Running initial sync...")
-	if err := s.syncMgr.SyncPaths(s.ctx, s.config.SyncPaths); err != nil {
+	if err := s.syncMgr.SyncPaths(s.ctx, s.config.SyncPaths, s.config.Versioning, s.config.MaxVersions, s.config.Ignore); err != nil {
 		log.Printf("Initial sync error: %v", err)
 	} else {
 		log.Println("Initial sync completed")
@@ -59,6 +59,11 @@ func (s *Service) Stop() {
 	s.cancel()
 	os.Remove(s.pidFile)
 	log.Println("Aerosync service stopped")
+}
+
+func (s *Service) Restore(path string) error {
+	baseName := filepath.Base(s.config.SyncPaths[0])
+	return s.syncMgr.Restore(s.ctx, path, baseName)
 }
 
 func (s *Service) IsRunning() bool {
@@ -106,7 +111,7 @@ func (s *Service) run() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.syncMgr.SyncPaths(s.ctx, s.config.SyncPaths); err != nil {
+			if err := s.syncMgr.SyncPaths(s.ctx, s.config.SyncPaths, s.config.Versioning, s.config.MaxVersions, s.config.Ignore); err != nil {
 				log.Printf("Sync error: %v", err)
 			}
 		}
