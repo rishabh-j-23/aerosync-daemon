@@ -23,7 +23,7 @@ type Service struct {
 
 func NewService(cfg *config.Config, provider sync.CloudProvider) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
-	pidFile := filepath.Join(".", "aerosync.pid")
+	pidFile := filepath.Join(config.GetConfigDir(), "aerosync.pid")
 	return &Service{
 		config:  cfg,
 		syncMgr: sync.NewSyncManager(provider),

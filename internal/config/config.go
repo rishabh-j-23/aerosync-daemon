@@ -23,11 +23,39 @@ type Config struct {
 	Ignore       []string   `toml:"ignore"`        // Patterns to ignore (e.g., [".git", "*.log"])
 }
 
+func GetConfigDir() string {
+	home, _ := os.UserHomeDir()
+	path := filepath.Join(home, ".config", "aerosync")
+	os.MkdirAll(path, 0755)
+	return path
+}
+
 func LoadConfig() (*Config, error) {
-	configPath := filepath.Join(".", "service.toml") 
+	configPath := filepath.Join(GetConfigDir(), "service.toml")
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("config file not found at %s", configPath)
+		// Try local if global doesn't exist (migration support)
+		localPath := filepath.Join(".", "service.toml")
+		if _, err := os.Stat(localPath); err == nil {
+			log.Printf("Migrating local config to global: %s", configPath)
+			data, _ := os.ReadFile(localPath)
+			os.WriteFile(configPath, data, 0644)
+		} else {
+			// Generate default config
+			log.Printf("Creating default config at %s", configPath)
+			defaultCfg := &Config{
+				SyncPaths:    []SyncPath{},
+				Provider:     "gdrive",
+				SyncInterval: "1h",
+				Versioning:   true,
+				MaxVersions:  3,
+				Ignore:       []string{".git", "node_modules", "*.log", "tmp", "temp"},
+			}
+			if err := defaultCfg.Save(); err != nil {
+				return nil, fmt.Errorf("failed to create default config: %w", err)
+			}
+			return defaultCfg, nil
+		}
 	}
 
 	log.Printf("Using config file: %s", configPath)
@@ -41,7 +69,7 @@ func LoadConfig() (*Config, error) {
 }
 
 func (c *Config) Save() error {
-	configPath := filepath.Join(".", "service.toml")
+	configPath := filepath.Join(GetConfigDir(), "service.toml")
 	f, err := os.Create(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)

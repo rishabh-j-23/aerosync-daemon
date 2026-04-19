@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"aerosync-service/internal/config"
 	"sync"
 	"time"
 
@@ -38,38 +39,63 @@ type GDriveProvider struct {
 
 func NewGDriveProvider() (*GDriveProvider, error) {
 	ctx := context.Background()
+	configDirPath := config.GetConfigDir()
+	credentialsPath := filepath.Join(configDirPath, "credentials.json")
 
-	configDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home dir: %w", err)
+	// Migration logic for credentials
+	if _, err := os.Stat(credentialsPath); os.IsNotExist(err) {
+		// Try old location (~/.config/aerosync/)
+		home, _ := os.UserHomeDir()
+		oldHomePath := filepath.Join(home, ".config", "aerosync", "credentials.json")
+		localPath := filepath.Join(".", "credentials.json")
+
+		if _, err := os.Stat(oldHomePath); err == nil {
+			log.Printf("Migrating credentials from home: %s", oldHomePath)
+			data, _ := os.ReadFile(oldHomePath)
+			os.WriteFile(credentialsPath, data, 0644)
+		} else if _, err := os.Stat(localPath); err == nil {
+			log.Printf("Migrating credentials from local: %s", localPath)
+			data, _ := os.ReadFile(localPath)
+			os.WriteFile(credentialsPath, data, 0644)
+		}
 	}
-	credentialsPath := filepath.Join(configDir, ".config", "aerosync", "credentials.json")
 
 	b, err := os.ReadFile(credentialsPath)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read client secret file: %v", err)
+		return nil, fmt.Errorf("unable to read client secret file at %s: %v", credentialsPath, err)
 	}
 
-	config, err := google.ConfigFromJSON(b, drive.DriveFileScope)
+	gdriveConfig, err := google.ConfigFromJSON(b, drive.DriveFileScope)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse client secret file to config: %v", err)
 	}
 
-	tokenPath := filepath.Join(configDir, ".config", "aerosync", "token.json")
+	tokenPath := filepath.Join(configDirPath, "token.json")
+	// Migration logic for token
+	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
+		home, _ := os.UserHomeDir()
+		oldHomeToken := filepath.Join(home, ".config", "aerosync", "token.json")
+		if _, err := os.Stat(oldHomeToken); err == nil {
+			log.Printf("Migrating token from home: %s", oldHomeToken)
+			data, _ := os.ReadFile(oldHomeToken)
+			os.WriteFile(tokenPath, data, 0644)
+		}
+	}
+
 	token, err := tokenFromFile(tokenPath)
 	if err != nil || token.Expiry.Before(time.Now()) {
-		token = getTokenFromWeb(config)
+		token = getTokenFromWeb(gdriveConfig)
 		saveToken(tokenPath, token)
 	}
 
-	client := config.Client(ctx, token)
+	client := gdriveConfig.Client(ctx, token)
 	srv, err := drive.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve Drive client: %v", err)
 	}
 
 	// Setup SQLite DB
-	dbPath := filepath.Join(configDir, ".config", "aerosync", "metadata.db")
+	dbPath := filepath.Join(configDirPath, "metadata.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open DB: %v", err)
