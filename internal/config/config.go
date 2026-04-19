@@ -30,6 +30,12 @@ func GetConfigDir() string {
 	return path
 }
 
+func GetLogsDir() string {
+	path := filepath.Join(GetConfigDir(), "logs")
+	os.MkdirAll(path, 0755)
+	return path
+}
+
 func LoadConfig() (*Config, error) {
 	configPath := filepath.Join(GetConfigDir(), "service.toml")
 

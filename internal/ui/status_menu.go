@@ -62,6 +62,11 @@ func (ui *AerosyncUI) StatusMenu() {
 		m.AddItem(fmt.Sprintf("Last Sync Attempt: %s", formatTime(lastStart)), func() error { return nil })
 		m.AddItem(fmt.Sprintf("Last Sync Success: %s", formatTime(lastSuccess)), func() error { return nil })
 
+		m.AddItem("View Live Logs", func() error {
+			ui.LogViewer()
+			return nil
+		})
+
 		m.AddItem("Refresh Dashboard", func() error {
 			return nil // Just triggers a rebuild of the menu
 		})

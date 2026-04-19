@@ -4,8 +4,10 @@ import (
 	"aerosync-service/internal/config"
 	"aerosync-service/internal/sync"
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -31,6 +33,38 @@ func NewService(cfg *config.Config, provider sync.CloudProvider) *Service {
 		cancel:  cancel,
 		pidFile: pidFile,
 	}
+}
+
+func (s *Service) SetupLogging() error {
+	logsDir := config.GetLogsDir()
+	logFile := filepath.Join(logsDir, "service.log")
+
+	// 1. Rotation Check (50MB Limit)
+	if info, err := os.Stat(logFile); err == nil {
+		if info.Size() > 50*1024*1024 {
+			rotatedName := filepath.Join(logsDir, fmt.Sprintf("service_%s.log", time.Now().Format("20060102_150405")))
+			os.Rename(logFile, rotatedName)
+		}
+	}
+
+	// 2. Automated Cleanup (Files > 7 Days)
+	files, _ := os.ReadDir(logsDir)
+	cutoff := time.Now().Add(-7 * 24 * time.Hour)
+	for _, f := range files {
+		path := filepath.Join(logsDir, f.Name())
+		if info, err := f.Info(); err == nil {
+			if info.ModTime().Before(cutoff) && !f.IsDir() {
+				os.Remove(path)
+			}
+		}
+	}
+
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	log.SetOutput(f)
+	return nil
 }
 
 func (s *Service) Start() {
@@ -118,19 +152,25 @@ func (s *Service) IsRunning() bool {
 		return false
 	}
 
-	pid, err := strconv.Atoi(string(data))
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
 		return false
 	}
 
+	// First try: standard Go process check
 	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
+	if err == nil {
+		if err := process.Signal(syscall.Signal(0)); err == nil {
+			return true
+		}
 	}
 
-	// Send signal 0 to check if process exists
-	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	// Second try: Windows specific fallback
+	// This handles cases where Signal(0) might return 'Access Denied' 
+	// but the process is clearly visible to the system.
+	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/NH")
+	out, _ := cmd.Output()
+	return strings.Contains(strings.ToLower(string(out)), "aerosync.exe")
 }
 
 func (s *Service) writePidFile() error {

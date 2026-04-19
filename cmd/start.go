@@ -35,6 +35,10 @@ var startCmd = &cobra.Command{
 		}
 
 		svc := service.NewService(cfg, provider)
+		if err := svc.SetupLogging(); err != nil {
+			log.Fatalf("Failed to setup logging: %v", err)
+		}
+		
 		svc.Start()
 
 		// Wait for interrupt signal
