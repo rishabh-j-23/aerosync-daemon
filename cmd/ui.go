@@ -99,12 +99,14 @@ func runSettingsMenu(cfg *config.Config) {
 			return nil
 		})
 
+		exitMenu := false
 		m.AddItem("Back to Main Menu", func() error {
+			exitMenu = true
 			return nil
 		})
 
 		selected, _ := m.Display()
-		if !selected {
+		if !selected || exitMenu {
 			return
 		}
 	}
