@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var targetOverride string
+
 var restoreCmd = &cobra.Command{
 	Use:   "restore [path]",
 	Short: "Restore a file or folder from backup",
@@ -38,15 +40,20 @@ var restoreCmd = &cobra.Command{
 		}
 
 		svc := service.NewService(cfg, provider)
-		if err := svc.Restore(path); err != nil {
+		if err := svc.Restore(path, targetOverride); err != nil {
 			fmt.Printf("Restore failed: %v\n", err)
 			return
 		}
 
-		fmt.Printf("Successfully restored: %s\n", path)
+		if targetOverride != "" {
+			fmt.Printf("Successfully restored: %s -> %s\n", path, targetOverride)
+		} else {
+			fmt.Printf("Successfully restored: %s\n", path)
+		}
 	},
 }
 
 func init() {
+	restoreCmd.Flags().StringVarP(&targetOverride, "target", "t", "", "Override the destination folder for restoration")
 	rootCmd.AddCommand(restoreCmd)
 }

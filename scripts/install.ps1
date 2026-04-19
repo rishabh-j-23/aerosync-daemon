@@ -23,6 +23,7 @@ Copy-Item $binaryPath $installPath
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Installation successful!"
     Write-Host "Binary installed to: $installPath"
+    Write-Host "Run '.\scripts\enable-startup.ps1' to enable automatic startup on logon."
     Write-Host "Make sure $installDir is in your PATH to run 'aerosync-service.exe --help'"
 } else {
     Write-Host "Installation failed"

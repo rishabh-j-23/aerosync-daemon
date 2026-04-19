@@ -6,15 +6,21 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	"log"
 )
 
+type SyncPath struct {
+	Path  string `toml:"path"`
+	Label string `toml:"label"`
+}
+
 type Config struct {
-	SyncPaths    []string `toml:"sync_paths"`
-	Provider     string   `toml:"provider"`      // e.g., "gdrive"
-	SyncInterval string   `toml:"sync_interval"` // e.g., "1h", "30m"
-	Versioning   bool     `toml:"versioning"`    // Enable versioning (default true)
-	MaxVersions  int      `toml:"max_versions"`  // Number of versions to keep (default 3)
-	Ignore       []string `toml:"ignore"`        // Patterns to ignore (e.g., [".git", "*.log"])
+	SyncPaths    []SyncPath `toml:"sync_paths"`
+	Provider     string     `toml:"provider"`      // e.g., "gdrive"
+	SyncInterval string     `toml:"sync_interval"` // e.g., "1h", "30m"
+	Versioning   bool       `toml:"versioning"`    // Enable versioning (default true)
+	MaxVersions  int        `toml:"max_versions"`  // Number of versions to keep (default 3)
+	Ignore       []string   `toml:"ignore"`        // Patterns to ignore (e.g., [".git", "*.log"])
 }
 
 func LoadConfig() (*Config, error) {
@@ -23,6 +29,8 @@ func LoadConfig() (*Config, error) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file not found at %s", configPath)
 	}
+
+	log.Printf("Using config file: %s", configPath)
 
 	var config Config
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {

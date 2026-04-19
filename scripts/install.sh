@@ -35,8 +35,10 @@ if [ $? -eq 0 ]; then
     echo "Installation successful!"
     echo "Binary installed to: $BINARY_DST"
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo "Run './scripts/enable-startup.sh' to enable automatic startup."
         echo "Run 'aerosync-service --help' to get started."
     else
+        echo "Run '.\scripts\enable-startup.ps1' to enable automatic startup on logon."
         echo "Make sure ~/bin is in your PATH to run 'aerosync-service.exe --help'"
     fi
 else

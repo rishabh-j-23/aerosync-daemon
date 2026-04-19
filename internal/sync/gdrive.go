@@ -13,9 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
@@ -32,6 +33,7 @@ type GDriveProvider struct {
 	srv         *drive.Service
 	db          *sql.DB
 	folderCache map[string]string // path -> driveId
+	mu          sync.RWMutex
 }
 
 func NewGDriveProvider() (*GDriveProvider, error) {
@@ -68,7 +70,7 @@ func NewGDriveProvider() (*GDriveProvider, error) {
 
 	// Setup SQLite DB
 	dbPath := filepath.Join(configDir, ".config", "aerosync", "metadata.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open DB: %v", err)
 	}
@@ -126,14 +128,18 @@ func setupDatabase(db *sql.DB) error {
 	return nil
 }
 
-func (g *GDriveProvider) Sync(ctx context.Context, path string, versioning bool, maxVersions int, ignore []string) error {
+func (g *GDriveProvider) Sync(ctx context.Context, path string, label string, versioning bool, maxVersions int, ignore []string) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
 
 	baseName := filepath.Base(absPath)
-	log.Printf("Starting sync for path: %s, versioning: %v", absPath, versioning)
+	displayFolder := baseName
+	if label != "" {
+		displayFolder = label
+	}
+	log.Printf("Starting sync for path: %s (Label: %s), versioning: %v", absPath, displayFolder, versioning)
 
 	return filepath.Walk(absPath, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -156,7 +162,7 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, versioning bool,
 		}
 
 		if info.IsDir() {
-			folderPath := "aerosync/" + baseName + "/" + relPath
+			folderPath := "aerosync/" + displayFolder + "/" + relPath
 			_, err = g.getOrCreateFolder(ctx, folderPath)
 			return err
 		}
@@ -196,22 +202,17 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, versioning bool,
 
 		parentId := ""
 		if relDir := filepath.Dir(relPath); relDir != "." {
-			folderPath := "aerosync/" + baseName + "/" + relDir
+			folderPath := "aerosync/" + displayFolder + "/" + relDir
 			parentId, err = g.getOrCreateFolder(ctx, folderPath)
 			if err != nil {
 				return err
 			}
 		} else {
-			folderPath := "aerosync/" + baseName
+			folderPath := "aerosync/" + displayFolder
 			parentId, err = g.getOrCreateFolder(ctx, folderPath)
 			if err != nil {
 				return err
 			}
-		}
-
-		driveFile := &drive.File{Name: filepath.Base(filePath)}
-		if parentId != "" {
-			driveFile.Parents = []string{parentId}
 		}
 
 		var driveFileId string
@@ -226,7 +227,8 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, versioning bool,
 		} else {
 			// Archive old version if versioning
 			if exists && versioning {
-				versionsPath := "aerosync_versions/" + baseName + "/" + relPath
+				log.Printf("Versioning enabled for changed file: %s", filePath)
+				versionsPath := "aerosync_versions/" + displayFolder + "/" + relPath
 				if err := g.archiveFile(ctx, existing.DriveID, versionsPath, filePath); err != nil {
 					log.Printf("Failed to archive %s: %v", filePath, err)
 				}
@@ -237,15 +239,29 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, versioning bool,
 			}
 
 			// Create new file
+			driveFile := &drive.File{Name: filepath.Base(filePath)}
+			if parentId != "" {
+				driveFile.Parents = []string{parentId}
+			}
+
+			// Detect MimeType
+			preview := make([]byte, 512)
+			n, _ := file.ReadAt(preview, 0)
+			mimeType := http.DetectContentType(preview[:n])
+			if strings.HasSuffix(filePath, ".toml") {
+				mimeType = "text/plain"
+			}
+			driveFile.MimeType = mimeType
+
 			created, err := g.srv.Files.Create(driveFile).Media(file).Do()
 			if err != nil {
 				return err
 			}
 			driveFileId = created.Id
 			if exists && versioning {
-				log.Printf("Versioned %s in Google Drive", filePath)
+				log.Printf("Versioned %s in Google Drive (check aerosync_versions folder)", filePath)
 			} else {
-				folderPath := "aerosync/" + baseName
+				folderPath := "aerosync/" + displayFolder
 				if relDir := filepath.Dir(relPath); relDir != "." {
 					folderPath += "/" + relDir
 				}
@@ -262,21 +278,26 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, versioning bool,
 	})
 }
 
-func (g *GDriveProvider) Restore(ctx context.Context, path string, baseName string) error {
-	fileName := filepath.Base(path)
-	relDir := filepath.Dir(path)
+func (g *GDriveProvider) Restore(ctx context.Context, targetPath string, relPath string, label string, baseName string) error {
+	fileName := filepath.Base(relPath)
+	relDir := filepath.Dir(relPath)
+
+	displayFolder := baseName
+	if label != "" {
+		displayFolder = label
+	}
 
 	// First, try to find current version in correct folder
 	var parentId string
 	if relDir != "." {
-		folderPath := fmt.Sprintf("aerosync/%s/%s", baseName, relDir)
+		folderPath := fmt.Sprintf("aerosync/%s/%s", displayFolder, relDir)
 		var err error
 		parentId, err = g.getOrCreateFolder(ctx, folderPath)
 		if err != nil {
 			return err
 		}
 	} else {
-		folderPath := fmt.Sprintf("aerosync/%s", baseName)
+		folderPath := fmt.Sprintf("aerosync/%s", displayFolder)
 		var err error
 		parentId, err = g.getOrCreateFolder(ctx, folderPath)
 		if err != nil {
@@ -302,7 +323,11 @@ func (g *GDriveProvider) Restore(ctx context.Context, path string, baseName stri
 	} else {
 		// Try versions from DB
 		var driveId string
-		err = g.db.QueryRow("SELECT drive_id FROM versions WHERE file_path = ? ORDER BY version_num DESC LIMIT 1", path).Scan(&driveId)
+		err = g.db.QueryRow("SELECT drive_id FROM versions WHERE file_path = ? ORDER BY version_num DESC LIMIT 1", relPath).Scan(&driveId)
+		if err == sql.ErrNoRows {
+			// Also check with absolute path just in case
+			err = g.db.QueryRow("SELECT drive_id FROM versions WHERE file_path = ? ORDER BY version_num DESC LIMIT 1", targetPath).Scan(&driveId)
+		}
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("file not found in Drive or versions: %s", fileName)
 		}
@@ -320,12 +345,12 @@ func (g *GDriveProvider) Restore(ctx context.Context, path string, baseName stri
 	defer resp.Body.Close()
 
 	// Ensure local directory exists
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 		return err
 	}
 
 	// Write to local file
-	out, err := os.Create(path)
+	out, err := os.Create(targetPath)
 	if err != nil {
 		return err
 	}
@@ -336,8 +361,24 @@ func (g *GDriveProvider) Restore(ctx context.Context, path string, baseName stri
 }
 
 func (g *GDriveProvider) getOrCreateFolder(ctx context.Context, folderPath string) (string, error) {
-	if id, exists := g.folderCache[folderPath]; exists {
-		return id, nil
+	// Normalize path to use forward slashes for cache keys
+	folderPath = filepath.ToSlash(folderPath)
+
+	g.mu.RLock()
+	id, exists := g.folderCache[folderPath]
+	g.mu.RUnlock()
+	if exists {
+		// Verify folder still exists in Drive
+		_, err := g.srv.Files.Get(id).Fields("id").Do()
+		if err == nil {
+			return id, nil
+		}
+		// If 404, remove from cache and continue to recreate
+		log.Printf("Cached folder ID %s for path %s not found in Drive, refreshing cache...", id, folderPath)
+		g.mu.Lock()
+		delete(g.folderCache, folderPath)
+		g.mu.Unlock()
+		g.db.Exec("DELETE FROM folders WHERE path = ?", folderPath)
 	}
 
 	// Handle root
@@ -414,40 +455,66 @@ func (g *GDriveProvider) setMetadata(path string, meta FileMetadata) error {
 }
 
 func (g *GDriveProvider) setFolder(path, driveId string) error {
+	path = filepath.ToSlash(path)
 	_, err := g.db.Exec("INSERT OR REPLACE INTO folders (path, drive_id) VALUES (?, ?)", path, driveId)
 	if err == nil {
+		g.mu.Lock()
 		g.folderCache[path] = driveId
+		g.mu.Unlock()
 	}
 	return err
 }
 
 func (g *GDriveProvider) archiveFile(ctx context.Context, fileId, versionsPath string, filePath string) error {
+	log.Printf("Archiving file %s to versions path %s", filePath, versionsPath)
+
 	versionsDir := filepath.Dir(versionsPath)
 	versionsFolderId, err := g.getVersionsFolder(ctx, versionsDir)
 	if err != nil {
+		log.Printf("Failed to get versions folder for %s: %v", versionsDir, err)
 		return err
 	}
+	log.Printf("Versions folder ID: %s for path: %s", versionsFolderId, versionsDir)
 
 	// Get next version number
 	var maxVersion int
 	err = g.db.QueryRow("SELECT COALESCE(MAX(version_num), 0) FROM versions WHERE file_path = ?", filePath).Scan(&maxVersion)
 	if err != nil {
+		log.Printf("Failed to get max version for %s: %v", filePath, err)
 		return err
 	}
 	versionNum := maxVersion + 1
+	log.Printf("Creating version %d for %s", versionNum, filePath)
 
 	timestamp := time.Now().Unix()
 	newName := fmt.Sprintf("%s_v%d_%d", filepath.Base(versionsPath), versionNum, timestamp)
 
 	// Move file to versions folder
-	_, err = g.srv.Files.Update(fileId, &drive.File{Name: newName, Parents: []string{versionsFolderId}}).Do()
+	// In Drive API v3, moving requires addParents/removeParents
+	file, err := g.srv.Files.Get(fileId).Fields("parents").Do()
 	if err != nil {
+		log.Printf("Failed to get current parents for %s: %v", fileId, err)
 		return err
 	}
+	oldParents := strings.Join(file.Parents, ",")
+
+	_, err = g.srv.Files.Update(fileId, &drive.File{Name: newName}).
+		AddParents(versionsFolderId).
+		RemoveParents(oldParents).
+		Do()
+	if err != nil {
+		log.Printf("Failed to move file %s to versions: %v", fileId, err)
+		return err
+	}
+
+	log.Printf("Archived file %s as %s in folder %s", filePath, newName, versionsFolderId)
 
 	// Record in DB
 	_, err = g.db.Exec("INSERT INTO versions (file_path, version_num, drive_id, timestamp) VALUES (?, ?, ?, ?)",
 		filePath, versionNum, fileId, timestamp)
+	if err != nil {
+		log.Printf("Failed to record version in DB: %v", err)
+	}
 	return err
 }
 
@@ -489,19 +556,20 @@ func (g *GDriveProvider) getVersionsFolder(ctx context.Context, versionsPath str
 }
 
 func (g *GDriveProvider) shouldIgnore(relPath string, ignore []string) bool {
+	relPath = filepath.ToSlash(relPath)
 	for _, pattern := range ignore {
-		matched, err := filepath.Match(pattern, relPath)
-		if err != nil {
-			continue // Skip invalid patterns
-		}
-		if matched {
+		// Match the full relative path
+		if matched, _ := filepath.Match(pattern, relPath); matched {
 			return true
 		}
-		// Also check if any parent directory matches
-		parts := strings.Split(relPath, string(filepath.Separator))
+		// Match the filename only (e.g. *.log)
+		if matched, _ := filepath.Match(pattern, filepath.Base(relPath)); matched {
+			return true
+		}
+		// Match parent directories (e.g. .git)
+		parts := strings.Split(relPath, "/")
 		for i := range parts {
-			parent := filepath.Join(parts[:i+1]...)
-			if matched, err := filepath.Match(pattern, parent); err == nil && matched {
+			if matched, _ := filepath.Match(pattern, parts[i]); matched {
 				return true
 			}
 		}
@@ -588,4 +656,44 @@ func saveToken(path string, token *oauth2.Token) {
 	// Simple JSON encode for token
 	data, _ := json.Marshal(token)
 	f.Write(data)
+}
+
+func (g *GDriveProvider) Cleanup(ctx context.Context) error {
+	log.Println("Cleaning up local sync data...")
+	// Clear local DB tables
+	_, err := g.db.Exec("DELETE FROM files")
+	if err != nil {
+		return fmt.Errorf("failed to clear files table: %w", err)
+	}
+	_, err = g.db.Exec("DELETE FROM folders")
+	if err != nil {
+		return fmt.Errorf("failed to clear folders table: %w", err)
+	}
+	_, err = g.db.Exec("DELETE FROM versions")
+	if err != nil {
+		return fmt.Errorf("failed to clear versions table: %w", err)
+	}
+
+	// Clear cache
+	g.mu.Lock()
+	g.folderCache = make(map[string]string)
+	g.mu.Unlock()
+
+	log.Println("Cleaning up remote sync data from Google Drive...")
+	// Delete remote folders
+	roots := []string{"aerosync", "aerosync_versions"}
+	for _, root := range roots {
+		query := fmt.Sprintf("name='%s' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false", root)
+		r, err := g.srv.Files.List().Q(query).Fields("files(id)").Do()
+		if err == nil {
+			for _, f := range r.Files {
+				log.Printf("Deleting remote folder: %s (ID: %s)", root, f.Id)
+				if err := g.srv.Files.Delete(f.Id).Do(); err != nil {
+					log.Printf("Warning: Failed to delete remote folder %s: %v", root, err)
+				}
+			}
+		}
+	}
+
+	return nil
 }

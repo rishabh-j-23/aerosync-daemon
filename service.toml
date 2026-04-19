@@ -1,6 +1,9 @@
-sync_paths = ["C:/Users/rish/AppData/Roaming/Sekiro"]
 provider = "gdrive"
-sync_interval = "1h"
+sync_interval = "1m"
 versioning = true
 max_versions = 3
 ignore = [".git", "*.log", "node_modules"]
+
+[[sync_paths]]
+path = "C:/Users/rish/AppData/Roaming/Sekiro"
+label = "SekiroSave"

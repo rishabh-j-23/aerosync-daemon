@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -61,9 +62,41 @@ func (s *Service) Stop() {
 	log.Println("Aerosync service stopped")
 }
 
-func (s *Service) Restore(path string) error {
-	baseName := filepath.Base(s.config.SyncPaths[0])
-	return s.syncMgr.Restore(s.ctx, path, baseName)
+func (s *Service) Restore(path string, targetOverride string) error {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+
+	for _, syncPath := range s.config.SyncPaths {
+		absSyncPath, _ := filepath.Abs(syncPath.Path)
+		if strings.HasPrefix(absPath, absSyncPath) {
+			relPath, err := filepath.Rel(absSyncPath, absPath)
+			if err != nil {
+				continue
+			}
+
+			destPath := absPath
+			if targetOverride != "" {
+				destPath = filepath.Join(targetOverride, relPath)
+			}
+
+			baseName := filepath.Base(absSyncPath)
+			return s.syncMgr.Restore(s.ctx, destPath, relPath, syncPath.Label, baseName)
+		}
+	}
+
+	// If not found in sync paths, assume it's the file name relative to the first sync path
+	syncPath := s.config.SyncPaths[0]
+	absSyncPath, _ := filepath.Abs(syncPath.Path)
+	
+	destPath := filepath.Join(absSyncPath, path)
+	if targetOverride != "" {
+		destPath = filepath.Join(targetOverride, path)
+	}
+
+	baseName := filepath.Base(absSyncPath)
+	return s.syncMgr.Restore(s.ctx, destPath, path, syncPath.Label, baseName)
 }
 
 func (s *Service) IsRunning() bool {
