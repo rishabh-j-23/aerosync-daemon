@@ -305,7 +305,8 @@ func (g *GDriveProvider) Restore(ctx context.Context, targetPath string, relPath
 		}
 	}
 
-	query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false", fileName, parentId)
+	safeFileName := strings.ReplaceAll(fileName, "'", "\\'")
+	query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false", safeFileName, parentId)
 	if relPath == "." {
 		// Special case: restoring the root of the label/backup
 		return g.restoreFolder(ctx, parentId, targetPath)
@@ -417,7 +418,8 @@ func (g *GDriveProvider) getOrCreateFolder(ctx context.Context, folderPath strin
 	folderName := filepath.Base(folderPath)
 
 	// Check if folder already exists
-	query := fmt.Sprintf("name='%s' and mimeType='application/vnd.google-apps.folder'", folderName)
+	safeName := strings.ReplaceAll(folderName, "'", "\\'")
+	query := fmt.Sprintf("name='%s' and mimeType='application/vnd.google-apps.folder' and trashed=false", safeName)
 	if parentId != "" {
 		query += fmt.Sprintf(" and '%s' in parents", parentId)
 	} else {

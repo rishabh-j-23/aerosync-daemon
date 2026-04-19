@@ -5,5 +5,5 @@ max_versions = 3
 ignore = [".git", "*.log", "node_modules"]
 
 [[sync_paths]]
-path = "C:/Users/rish/AppData/Roaming/Sekiro"
-label = "SekiroSave"
+  path = "C:/Users/rish/AppData/Roaming/Sekiro"
+  label = "Sekiro"
