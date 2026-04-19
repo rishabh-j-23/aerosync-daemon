@@ -4,6 +4,8 @@ import (
 	"aerosync-service/internal/autostart"
 	"aerosync-service/internal/tui"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -15,11 +17,29 @@ func (ui *AerosyncUI) StatusMenu() {
 
 		// 1. Background Process Status
 		svcStatus := "🔴 STOPPED"
+		svcAction := "Start Service"
 		if ui.Service.IsRunning() {
 			svcStatus = "🟢 RUNNING"
+			svcAction = "Stop Service"
 		}
-		m.AddItem(fmt.Sprintf("Background Service: %s", svcStatus), func() error {
-			fmt.Printf("\nService is currently %s.\n", svcStatus)
+		m.AddItem(fmt.Sprintf("Background Service: %s (%s)", svcStatus, svcAction), func() error {
+			if ui.Service.IsRunning() {
+				fmt.Println("\nStopping background service...")
+				ui.Service.Stop()
+				fmt.Println("Service stopped.")
+			} else {
+				fmt.Println("\nStarting detached background service...")
+				// Get path to current executable
+				exe, _ := os.Executable()
+				cmd := exec.Command(exe, "start")
+				if err := cmd.Start(); err != nil {
+					fmt.Printf("Error launching service: %v\n", err)
+				} else {
+					fmt.Println("Service launched successfully.")
+					// Small sleep to allow PID file to be written before menu refresh
+					time.Sleep(500 * time.Millisecond)
+				}
+			}
 			tui.WaitForEnter()
 			return nil
 		})

@@ -57,8 +57,10 @@ func getStartupPath() string {
 
 func enableWindows(exePath string) error {
 	path := getStartupPath()
-	// Using 'start' command ensures the batch window closes immediately after launching the service
-	content := fmt.Sprintf("@echo off\nstart \"\" \"%s\" start", exePath)
+	// Using timeout gives the system 10 seconds to 'settle' after login before Aerosync starts.
+	// This ensures we don't fight for resources during the critical login window.
+	// 'start' then spawns the process and the batch script exits immediately.
+	content := fmt.Sprintf("@echo off\ntimeout /t 10 /nobreak > NUL\nstart \"\" \"%s\" start", exePath)
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
