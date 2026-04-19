@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"aerosync-service/internal/autostart"
 	"aerosync-service/internal/tui"
 	"fmt"
 )
@@ -46,6 +47,30 @@ func (ui *AerosyncUI) SettingsMenu() {
 
 		m.AddItem("Manage Sync Paths", func() error {
 			ui.SyncPathsMenu()
+			return nil
+		})
+
+		status := "Disabled"
+		if autostart.IsEnabled() {
+			status = "Enabled"
+		}
+		m.AddItem(fmt.Sprintf("Auto-start on Login: [%s]", status), func() error {
+			if autostart.IsEnabled() {
+				fmt.Println("\nDisabling auto-start...")
+				if err := autostart.Disable(); err != nil {
+					fmt.Printf("Error: %v\n", err)
+				} else {
+					fmt.Println("Auto-start disabled.")
+				}
+			} else {
+				fmt.Println("\nEnabling auto-start...")
+				if err := autostart.Enable(); err != nil {
+					fmt.Printf("Error: %v\n", err)
+				} else {
+					fmt.Println("Auto-start enabled.")
+				}
+			}
+			tui.WaitForEnter()
 			return nil
 		})
 

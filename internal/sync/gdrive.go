@@ -145,6 +145,10 @@ func setupDatabase(db *sql.DB) error {
 			timestamp INTEGER,
 			PRIMARY KEY (label, rel_path, version_num)
 		)`,
+		`CREATE TABLE IF NOT EXISTS status (
+			key TEXT PRIMARY KEY,
+			value TEXT
+		)`,
 	}
 
 	for _, query := range queries {
@@ -192,6 +196,23 @@ func (g *GDriveProvider) RestoreSpecific(ctx context.Context, driveID string, ta
 	return err
 }
 
+func (g *GDriveProvider) GetStatus(key string) (string, error) {
+	var val string
+	err := g.db.QueryRow("SELECT value FROM status WHERE key = ?", key).Scan(&val)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return val, nil
+}
+
+func (g *GDriveProvider) SetStatus(key, value string) error {
+	_, err := g.db.Exec("INSERT OR REPLACE INTO status (key, value) VALUES (?, ?)", key, value)
+	return err
+}
+
 func (g *GDriveProvider) Sync(ctx context.Context, path string, label string, versioning bool, maxVersions int, ignore []string) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -204,6 +225,7 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, label string, ve
 		displayFolder = label
 	}
 	log.Printf("Starting sync for path: %s (Label: %s), versioning: %v", absPath, displayFolder, versioning)
+	g.SetStatus("last_sync_start", time.Now().Format(time.RFC3339))
 
 	return filepath.Walk(absPath, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -341,6 +363,11 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, label string, ve
 		})
 		return err
 	})
+
+	if err == nil {
+		g.SetStatus("last_sync_success", time.Now().Format(time.RFC3339))
+	}
+	return err
 }
 
 func (g *GDriveProvider) Restore(ctx context.Context, targetPath string, relPath string, label string, baseName string) error {

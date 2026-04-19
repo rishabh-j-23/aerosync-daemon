@@ -13,6 +13,8 @@ type CloudProvider interface {
 	ListRemote(ctx context.Context, label string) ([]RemoteFile, error)
 	GetFileVersions(ctx context.Context, label string, relPath string) ([]FileVersion, error)
 	RenameLabel(ctx context.Context, oldLabel, newLabel string) error
+	GetStatus(key string) (string, error)
+	SetStatus(key, value string) error
 }
 
 type RemoteFile struct {

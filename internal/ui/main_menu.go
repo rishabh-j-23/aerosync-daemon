@@ -29,6 +29,11 @@ func (ui *AerosyncUI) MainMenu() {
 	tui.RunMenu(func() *tui.Menu {
 		m := tui.NewMenu("Aerosync Main Menu")
 
+		m.AddItem("Health & Status Dashboard", func() error {
+			ui.StatusMenu()
+			return nil
+		})
+
 		m.AddItem("Backups", func() error {
 			ui.BackupMenu()
 			return nil
