@@ -761,45 +761,54 @@ func (g *GDriveProvider) RenameLabel(ctx context.Context, oldLabel, newLabel str
 	oldPath := "aerosync/" + oldLabel
 	newPath := "aerosync/" + newLabel
 
-	// 1. Find the old root folder
-	query := fmt.Sprintf("name='%s' and 'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", "aerosync")
+	// 1. Find the aerosync root folder using the existing logic
+	aerosyncRootId, err := g.getOrCreateFolder(ctx, "aerosync")
+	if err != nil {
+		return fmt.Errorf("failed to find aerosync root: %w", err)
+	}
+
+	// 2. Find the old label folder within aerosync
+	safeOldLabel := strings.ReplaceAll(oldLabel, "'", "\\'")
+	query := fmt.Sprintf("name='%s' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", safeOldLabel, aerosyncRootId)
 	r, err := g.srv.Files.List().Q(query).Fields("files(id)").Do()
 	if err != nil || len(r.Files) == 0 {
-		return fmt.Errorf("aerosync root not found")
-	}
-	aerosyncRootId := r.Files[0].Id
-
-	safeOldLabel := strings.ReplaceAll(oldLabel, "'", "\\'")
-	query = fmt.Sprintf("name='%s' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", safeOldLabel, aerosyncRootId)
-	r, err = g.srv.Files.List().Q(query).Fields("files(id)").Do()
-	if err != nil || len(r.Files) == 0 {
-		return fmt.Errorf("old label folder '%s' not found on Drive", oldLabel)
+		return fmt.Errorf("old label folder '%s' not found on Drive inside aerosync root", oldLabel)
 	}
 	oldFolderId := r.Files[0].Id
 
-	// 2. Rename on Drive
+	// 3. Rename on Drive
 	_, err = g.srv.Files.Update(oldFolderId, &drive.File{Name: newLabel}).Do()
 	if err != nil {
-		return fmt.Errorf("failed to rename folder on Drive: %w", err)
+		return fmt.Errorf("failed to rename folder on Drive from '%s' to '%s': %w", oldLabel, newLabel, err)
 	}
 
-	// 3. Update local cache and DB
-	// We need to update all cached paths that start with aerosync/oldLabel/
+	// 4. Update local cache and DB
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	// Use a temporary map to avoid modifying while iterating
+	toAdd := make(map[string]string)
+	toDelete := []string{}
+	
 	prefix := oldPath + "/"
 	newPrefix := newPath + "/"
 
 	for path, id := range g.folderCache {
 		if path == oldPath {
-			delete(g.folderCache, path)
-			g.folderCache[newPath] = id
+			toDelete = append(toDelete, path)
+			toAdd[newPath] = id
 		} else if strings.HasPrefix(path, prefix) {
 			newP := newPrefix + strings.TrimPrefix(path, prefix)
-			delete(g.folderCache, path)
-			g.folderCache[newP] = id
+			toDelete = append(toDelete, path)
+			toAdd[newP] = id
 		}
+	}
+
+	for _, k := range toDelete {
+		delete(g.folderCache, k)
+	}
+	for k, v := range toAdd {
+		g.folderCache[k] = v
 	}
 
 	// Update DB

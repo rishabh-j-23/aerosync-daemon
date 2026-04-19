@@ -66,6 +66,7 @@ func (m *Menu) Display() (bool, error) {
 // This is useful for dynamic menus where labels or items change based on state.
 func RunMenu(builder func() *Menu) error {
 	for {
+		ClearScreen()
 		m := builder()
 		selected, err := m.Display()
 		if !selected {
@@ -83,7 +84,8 @@ func RunMenu(builder func() *Menu) error {
 
 // Select is a generic helper to run fzf and get a string selection
 func Select(header string, options []string) (string, error) {
-	fzfCmd := exec.Command("fzf", "--header", header, "--reverse", "--height", "25%", "--info", "inline")
+	// Removed --height 25% to make it fullscreen
+	fzfCmd := exec.Command("fzf", "--header", header, "--reverse", "--info", "inline")
 	fzfCmd.Stdin = strings.NewReader(strings.Join(options, "\n"))
 	fzfCmd.Stderr = os.Stderr
 	
@@ -97,6 +99,12 @@ func Select(header string, options []string) (string, error) {
 	
 	return strings.TrimSpace(string(out)), nil
 }
+
+// ClearScreen clears the terminal screen across different platforms using ANSI escape codes
+func ClearScreen() {
+	fmt.Print("\033[H\033[2J")
+}
+
 
 // Prompt is a simple helper to get text input from the user, supporting spaces
 func Prompt(message string) string {
