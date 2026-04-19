@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -97,11 +98,11 @@ func Select(header string, options []string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Prompt is a simple helper to get text input from the user
+// Prompt is a simple helper to get text input from the user, supporting spaces
 func Prompt(message string) string {
 	fmt.Print(message)
-	var input string
-	fmt.Scanln(&input)
+	reader := bufio.NewReader(os.Stdin)
+	input, _ := reader.ReadString('\n')
 	return strings.TrimSpace(input)
 }
 

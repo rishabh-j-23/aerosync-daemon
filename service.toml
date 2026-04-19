@@ -6,4 +6,4 @@ ignore = [".git", "*.log", "node_modules"]
 
 [[sync_paths]]
   path = "C:/Users/rish/AppData/Roaming/Sekiro"
-  label = "Sekiro"
+  label = "Sekiro Save (user=rish)"
