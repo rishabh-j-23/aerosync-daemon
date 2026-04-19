@@ -88,7 +88,11 @@ func NewGDriveProvider() (*GDriveProvider, error) {
 		saveToken(tokenPath, token)
 	}
 
-	client := gdriveConfig.Client(ctx, token)
+	client := oauth2.NewClient(ctx, &SavingTokenSource{
+		source: gdriveConfig.TokenSource(ctx, token),
+		path:   tokenPath,
+		token:  token,
+	})
 	srv, err := drive.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve Drive client: %v", err)
@@ -728,6 +732,32 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 		}
 		return tok
 	}
+}
+
+type SavingTokenSource struct {
+	source oauth2.TokenSource
+	path   string
+	token  *oauth2.Token
+	mu     sync.Mutex
+}
+
+func (s *SavingTokenSource) Token() (*oauth2.Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	newToken, err := s.source.Token()
+	if err != nil {
+		return nil, err
+	}
+
+	// If the token has changed (refreshed), save it to disk
+	if s.token == nil || newToken.AccessToken != s.token.AccessToken {
+		log.Printf("OAuth2 token refreshed, saving to %s", s.path)
+		s.token = newToken
+		saveToken(s.path, newToken)
+	}
+
+	return newToken, nil
 }
 
 func tokenFromFile(file string) (*oauth2.Token, error) {
