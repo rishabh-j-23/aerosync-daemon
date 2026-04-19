@@ -138,11 +138,12 @@ func setupDatabase(db *sql.DB) error {
 			drive_id TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS versions (
-			file_path TEXT,
+			label TEXT,
+			rel_path TEXT,
 			version_num INTEGER,
 			drive_id TEXT,
 			timestamp INTEGER,
-			PRIMARY KEY (file_path, version_num)
+			PRIMARY KEY (label, rel_path, version_num)
 		)`,
 	}
 
@@ -152,6 +153,43 @@ func setupDatabase(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func (g *GDriveProvider) GetFileVersions(ctx context.Context, label string, relPath string) ([]FileVersion, error) {
+	relPath = filepath.ToSlash(relPath)
+	rows, err := g.db.Query("SELECT version_num, drive_id, timestamp FROM versions WHERE label = ? AND rel_path = ? ORDER BY version_num DESC", label, relPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []FileVersion
+	for rows.Next() {
+		var v FileVersion
+		if err := rows.Scan(&v.Number, &v.DriveID, &v.Timestamp); err != nil {
+			return nil, err
+		}
+		versions = append(versions, v)
+	}
+	return versions, nil
+}
+
+func (g *GDriveProvider) RestoreSpecific(ctx context.Context, driveID string, targetPath string) error {
+	res, err := g.srv.Files.Get(driveID).Download()
+	if err != nil {
+		return fmt.Errorf("failed to download from Drive: %w", err)
+	}
+	defer res.Body.Close()
+
+	os.MkdirAll(filepath.Dir(targetPath), 0755)
+	out, err := os.Create(targetPath)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %w", err)
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, res.Body)
+	return err
 }
 
 func (g *GDriveProvider) Sync(ctx context.Context, path string, label string, versioning bool, maxVersions int, ignore []string) error {
@@ -176,6 +214,7 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, label string, ve
 		if err != nil {
 			return err
 		}
+		relPath = filepath.ToSlash(relPath)
 		if relPath == "." {
 			return nil
 		}
@@ -254,12 +293,12 @@ func (g *GDriveProvider) Sync(ctx context.Context, path string, label string, ve
 			// Archive old version if versioning
 			if exists && versioning {
 				log.Printf("Versioning enabled for changed file: %s", filePath)
-				versionsPath := "aerosync_versions/" + displayFolder + "/" + relPath
-				if err := g.archiveFile(ctx, existing.DriveID, versionsPath, filePath); err != nil {
+				versionsPath := "aerosync/aerosync_versions/" + displayFolder + "/" + relPath
+				if err := g.archiveFile(ctx, existing.DriveID, versionsPath, displayFolder, relPath); err != nil {
 					log.Printf("Failed to archive %s: %v", filePath, err)
 				}
 				// Cleanup old versions
-				if err := g.cleanupVersions(maxVersions, filePath); err != nil {
+				if err := g.cleanupVersions(maxVersions, displayFolder, relPath); err != nil {
 					log.Printf("Failed to cleanup versions for %s: %v", filePath, err)
 				}
 			}
@@ -510,35 +549,29 @@ func (g *GDriveProvider) setFolder(path, driveId string) error {
 	return err
 }
 
-func (g *GDriveProvider) archiveFile(ctx context.Context, fileId, versionsPath string, filePath string) error {
-	log.Printf("Archiving file %s to versions path %s", filePath, versionsPath)
+func (g *GDriveProvider) archiveFile(ctx context.Context, fileId, versionsPath, label, relPath string) error {
+	log.Printf("Archiving file %s to versions path %s", relPath, versionsPath)
 
 	versionsDir := filepath.Dir(versionsPath)
 	versionsFolderId, err := g.getVersionsFolder(ctx, versionsDir)
 	if err != nil {
-		log.Printf("Failed to get versions folder for %s: %v", versionsDir, err)
 		return err
 	}
-	log.Printf("Versions folder ID: %s for path: %s", versionsFolderId, versionsDir)
 
 	// Get next version number
 	var maxVersion int
-	err = g.db.QueryRow("SELECT COALESCE(MAX(version_num), 0) FROM versions WHERE file_path = ?", filePath).Scan(&maxVersion)
+	err = g.db.QueryRow("SELECT COALESCE(MAX(version_num), 0) FROM versions WHERE label = ? AND rel_path = ?", label, relPath).Scan(&maxVersion)
 	if err != nil {
-		log.Printf("Failed to get max version for %s: %v", filePath, err)
 		return err
 	}
 	versionNum := maxVersion + 1
-	log.Printf("Creating version %d for %s", versionNum, filePath)
 
 	timestamp := time.Now().Unix()
 	newName := fmt.Sprintf("%s_v%d_%d", filepath.Base(versionsPath), versionNum, timestamp)
 
 	// Move file to versions folder
-	// In Drive API v3, moving requires addParents/removeParents
 	file, err := g.srv.Files.Get(fileId).Fields("parents").Do()
 	if err != nil {
-		log.Printf("Failed to get current parents for %s: %v", fileId, err)
 		return err
 	}
 	oldParents := strings.Join(file.Parents, ",")
@@ -548,24 +581,17 @@ func (g *GDriveProvider) archiveFile(ctx context.Context, fileId, versionsPath s
 		RemoveParents(oldParents).
 		Do()
 	if err != nil {
-		log.Printf("Failed to move file %s to versions: %v", fileId, err)
 		return err
 	}
 
-	log.Printf("Archived file %s as %s in folder %s", filePath, newName, versionsFolderId)
-
 	// Record in DB
-	_, err = g.db.Exec("INSERT INTO versions (file_path, version_num, drive_id, timestamp) VALUES (?, ?, ?, ?)",
-		filePath, versionNum, fileId, timestamp)
-	if err != nil {
-		log.Printf("Failed to record version in DB: %v", err)
-	}
+	_, err = g.db.Exec("INSERT INTO versions (label, rel_path, version_num, drive_id, timestamp) VALUES (?, ?, ?, ?, ?)",
+		label, relPath, versionNum, fileId, timestamp)
 	return err
 }
 
-func (g *GDriveProvider) cleanupVersions(maxVersions int, filePath string) error {
-	// Get versions from DB
-	rows, err := g.db.Query("SELECT version_num, drive_id FROM versions WHERE file_path = ? ORDER BY version_num DESC", filePath)
+func (g *GDriveProvider) cleanupVersions(maxVersions int, label, relPath string) error {
+	rows, err := g.db.Query("SELECT version_num, drive_id FROM versions WHERE label = ? AND rel_path = ? ORDER BY version_num DESC", label, relPath)
 	if err != nil {
 		return err
 	}
@@ -584,13 +610,10 @@ func (g *GDriveProvider) cleanupVersions(maxVersions int, filePath string) error
 		versions = append(versions, v)
 	}
 
-	// Keep only maxVersions, delete older
 	if len(versions) > maxVersions {
 		for i := maxVersions; i < len(versions); i++ {
-			// Delete from Drive
 			g.srv.Files.Delete(versions[i].driveId).Do()
-			// Delete from DB
-			g.db.Exec("DELETE FROM versions WHERE file_path = ? AND version_num = ?", filePath, versions[i].num)
+			g.db.Exec("DELETE FROM versions WHERE label = ? AND rel_path = ? AND version_num = ?", label, relPath, versions[i].num)
 		}
 	}
 	return nil

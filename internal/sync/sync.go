@@ -8,14 +8,22 @@ import (
 type CloudProvider interface {
 	Sync(ctx context.Context, path string, label string, versioning bool, maxVersions int, ignore []string) error
 	Restore(ctx context.Context, targetPath string, relPath string, label string, baseName string) error
+	RestoreSpecific(ctx context.Context, driveID string, targetPath string) error
 	Cleanup(ctx context.Context) error
 	ListRemote(ctx context.Context, label string) ([]RemoteFile, error)
+	GetFileVersions(ctx context.Context, label string, relPath string) ([]FileVersion, error)
 	RenameLabel(ctx context.Context, oldLabel, newLabel string) error
 }
 
 type RemoteFile struct {
 	Path    string
 	DriveID string
+}
+
+type FileVersion struct {
+	Number    int
+	DriveID   string
+	Timestamp int64
 }
 
 type SyncManager struct {

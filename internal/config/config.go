@@ -81,3 +81,12 @@ func (c *Config) Save() error {
 	}
 	return nil
 }
+
+func (c *Config) GetSyncPath(label string) string {
+	for _, p := range c.SyncPaths {
+		if p.Label == label {
+			return p.Path
+		}
+	}
+	return ""
+}

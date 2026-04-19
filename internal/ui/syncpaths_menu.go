@@ -32,6 +32,11 @@ func (ui *AerosyncUI) SyncPathsMenu() {
 			if label == "" {
 				return nil
 			}
+			if label == "aerosync_versions" {
+				fmt.Println("Error: 'aerosync_versions' is a reserved system folder name. Please choose another label.")
+				tui.WaitForEnter()
+				return nil
+			}
 			ui.Config.SyncPaths = append(ui.Config.SyncPaths, config.SyncPath{Path: path, Label: label})
 			ui.Config.Save()
 			fmt.Printf("Path added successfully: %s\n", path)
