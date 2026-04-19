@@ -44,5 +44,6 @@ func (ui *AerosyncUI) LogViewer() {
 		fmt.Print("\nReturning to Dashboard...")
 	}
 	
+	tui.ClearScreen()
 	fmt.Println()
 }

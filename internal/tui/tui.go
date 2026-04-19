@@ -100,9 +100,18 @@ func Select(header string, options []string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// ClearScreen clears the terminal screen across different platforms using ANSI escape codes
+// ClearScreen clears the terminal screen across different platforms
 func ClearScreen() {
-	fmt.Print("\033[H\033[2J")
+	var cmd *exec.Cmd
+	if os.PathSeparator == '\\' {
+		// Windows
+		cmd = exec.Command("cmd", "/c", "cls")
+	} else {
+		// Linux/Unix
+		cmd = exec.Command("clear")
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Run()
 }
 
 
@@ -117,5 +126,6 @@ func Prompt(message string) string {
 // WaitForEnter pauses execution until the user presses enter
 func WaitForEnter() {
 	fmt.Print("\nPress Enter to continue...")
-	fmt.Scanln()
+	reader := bufio.NewReader(os.Stdin)
+	reader.ReadString('\n')
 }
