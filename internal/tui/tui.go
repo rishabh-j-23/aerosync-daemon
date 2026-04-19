@@ -1,11 +1,15 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 )
+
+// ErrExit is a sentinel error used to signal that a menu should close
+var ErrExit = errors.New("exit menu")
 
 // Item represents a single selectable option in a menu
 type Item struct {
@@ -41,7 +45,7 @@ func (m *Menu) Display() (bool, error) {
 		return false, err
 	}
 	if choice == "" {
-		return false, nil // Cancelled
+		return false, nil // Cancelled with ESC
 	}
 
 	for _, item := range m.Items {
@@ -55,6 +59,23 @@ func (m *Menu) Display() (bool, error) {
 	}
 
 	return false, nil
+}
+
+// Run displays the menu in a loop until a handler returns ErrExit or the user cancels
+func (m *Menu) Run() error {
+	for {
+		selected, err := m.Display()
+		if !selected {
+			return nil // User pressed ESC
+		}
+		if errors.Is(err, ErrExit) {
+			return nil
+		}
+		if err != nil {
+			fmt.Printf("\nError: %v\n", err)
+			WaitForEnter()
+		}
+	}
 }
 
 // Select is a generic helper to run fzf and get a string selection

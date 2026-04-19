@@ -25,28 +25,21 @@ func NewAerosyncUI(cfg *config.Config, p sync.CloudProvider) *AerosyncUI {
 
 // MainMenu is the entry point for the hierarchical TUI
 func (ui *AerosyncUI) MainMenu() {
-	for {
-		m := tui.NewMenu("Aerosync Main Menu")
-		
-		exitApp := false
-		m.AddItem("Backups", func() error {
-			ui.BackupMenu()
-			return nil
-		})
+	m := tui.NewMenu("Aerosync Main Menu")
 
-		m.AddItem("Settings", func() error {
-			ui.SettingsMenu()
-			return nil
-		})
-		
-		m.AddItem("Exit", func() error {
-			exitApp = true
-			return nil
-		})
+	m.AddItem("Backups", func() error {
+		ui.BackupMenu()
+		return nil
+	})
 
-		selected, _ := m.Display()
-		if !selected || exitApp {
-			return
-		}
-	}
+	m.AddItem("Settings", func() error {
+		ui.SettingsMenu()
+		return nil
+	})
+
+	m.AddItem("Exit", func() error {
+		return tui.ErrExit
+	})
+
+	m.Run()
 }

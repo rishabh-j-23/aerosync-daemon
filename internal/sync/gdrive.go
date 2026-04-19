@@ -756,3 +756,52 @@ func (g *GDriveProvider) listRecursive(ctx context.Context, folderId, relPrefix 
 	}
 	return nil
 }
+
+func (g *GDriveProvider) RenameLabel(ctx context.Context, oldLabel, newLabel string) error {
+	oldPath := "aerosync/" + oldLabel
+	newPath := "aerosync/" + newLabel
+
+	// 1. Find the old root folder
+	query := fmt.Sprintf("name='%s' and 'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", "aerosync")
+	r, err := g.srv.Files.List().Q(query).Fields("files(id)").Do()
+	if err != nil || len(r.Files) == 0 {
+		return fmt.Errorf("aerosync root not found")
+	}
+	aerosyncRootId := r.Files[0].Id
+
+	query = fmt.Sprintf("name='%s' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", oldLabel, aerosyncRootId)
+	r, err = g.srv.Files.List().Q(query).Fields("files(id)").Do()
+	if err != nil || len(r.Files) == 0 {
+		return fmt.Errorf("old label folder '%s' not found on Drive", oldLabel)
+	}
+	oldFolderId := r.Files[0].Id
+
+	// 2. Rename on Drive
+	_, err = g.srv.Files.Update(oldFolderId, &drive.File{Name: newLabel}).Do()
+	if err != nil {
+		return fmt.Errorf("failed to rename folder on Drive: %w", err)
+	}
+
+	// 3. Update local cache and DB
+	// We need to update all cached paths that start with aerosync/oldLabel/
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	prefix := oldPath + "/"
+	newPrefix := newPath + "/"
+
+	for path, id := range g.folderCache {
+		if path == oldPath {
+			delete(g.folderCache, path)
+			g.folderCache[newPath] = id
+		} else if strings.HasPrefix(path, prefix) {
+			newP := newPrefix + strings.TrimPrefix(path, prefix)
+			delete(g.folderCache, path)
+			g.folderCache[newP] = id
+		}
+	}
+
+	// Update DB
+	_, err = g.db.Exec("UPDATE folders SET path = REPLACE(path, ?, ?) WHERE path LIKE ?", oldPath, newPath, oldPath+"%")
+	return err
+}

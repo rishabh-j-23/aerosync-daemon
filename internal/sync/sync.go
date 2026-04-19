@@ -10,6 +10,7 @@ type CloudProvider interface {
 	Restore(ctx context.Context, targetPath string, relPath string, label string, baseName string) error
 	Cleanup(ctx context.Context) error
 	ListRemote(ctx context.Context, label string) ([]RemoteFile, error)
+	RenameLabel(ctx context.Context, oldLabel, newLabel string) error
 }
 
 type RemoteFile struct {
@@ -44,4 +45,8 @@ func (sm *SyncManager) Cleanup(ctx context.Context) error {
 
 func (sm *SyncManager) ListRemote(ctx context.Context, label string) ([]RemoteFile, error) {
 	return sm.provider.ListRemote(ctx, label)
+}
+
+func (sm *SyncManager) RenameLabel(ctx context.Context, oldLabel, newLabel string) error {
+	return sm.provider.RenameLabel(ctx, oldLabel, newLabel)
 }
