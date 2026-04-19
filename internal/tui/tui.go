@@ -61,12 +61,14 @@ func (m *Menu) Display() (bool, error) {
 	return false, nil
 }
 
-// Run displays the menu in a loop until a handler returns ErrExit or the user cancels
-func (m *Menu) Run() error {
+// RunMenu takes a function that returns a Menu, allowing the menu to be rebuilt on each iteration.
+// This is useful for dynamic menus where labels or items change based on state.
+func RunMenu(builder func() *Menu) error {
 	for {
+		m := builder()
 		selected, err := m.Display()
 		if !selected {
-			return nil // User pressed ESC
+			return nil
 		}
 		if errors.Is(err, ErrExit) {
 			return nil

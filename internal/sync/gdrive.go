@@ -769,7 +769,8 @@ func (g *GDriveProvider) RenameLabel(ctx context.Context, oldLabel, newLabel str
 	}
 	aerosyncRootId := r.Files[0].Id
 
-	query = fmt.Sprintf("name='%s' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", oldLabel, aerosyncRootId)
+	safeOldLabel := strings.ReplaceAll(oldLabel, "'", "\\'")
+	query = fmt.Sprintf("name='%s' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false", safeOldLabel, aerosyncRootId)
 	r, err = g.srv.Files.List().Q(query).Fields("files(id)").Do()
 	if err != nil || len(r.Files) == 0 {
 		return fmt.Errorf("old label folder '%s' not found on Drive", oldLabel)

@@ -8,21 +8,23 @@ import (
 
 // BackupMenu displays all configured labels for restoration
 func (ui *AerosyncUI) BackupMenu() {
-	m := tui.NewMenu("Select a Backup to Manage")
+	tui.RunMenu(func() *tui.Menu {
+		m := tui.NewMenu("Select a Backup to Manage")
 
-	for _, sp := range ui.Config.SyncPaths {
-		currentPath := sp
-		m.AddItem(fmt.Sprintf("%s (%s)", sp.Label, sp.Path), func() error {
-			ui.ActionMenu(currentPath)
-			return nil
+		for _, sp := range ui.Config.SyncPaths {
+			currentPath := sp
+			m.AddItem(fmt.Sprintf("%s (%s)", sp.Label, sp.Path), func() error {
+				ui.ActionMenu(currentPath)
+				return nil
+			})
+		}
+
+		m.AddItem("Back to Main Menu", func() error {
+			return tui.ErrExit
 		})
-	}
 
-	m.AddItem("Back to Main Menu", func() error {
-		return tui.ErrExit
+		return m
 	})
-
-	m.Run()
 }
 
 // ActionMenu handles individual actions for a specific backup label
