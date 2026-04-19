@@ -305,49 +305,66 @@ func (g *GDriveProvider) Restore(ctx context.Context, targetPath string, relPath
 		}
 	}
 
-	query := fmt.Sprintf("name='%s' and trashed=false", fileName)
-	if parentId != "" {
-		query += fmt.Sprintf(" and '%s' in parents", parentId)
-	} else {
-		query += " and 'root' in parents"
+	query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false", fileName, parentId)
+	if relPath == "." {
+		// Special case: restoring the root of the label/backup
+		return g.restoreFolder(ctx, parentId, targetPath)
 	}
 
-	files, err := g.srv.Files.List().Q(query).Fields("files(id,name,modifiedTime)").OrderBy("modifiedTime desc").Do()
+	files, err := g.srv.Files.List().Q(query).Fields("files(id,name,modifiedTime,mimeType)").OrderBy("modifiedTime desc").Do()
 	if err != nil {
 		return err
 	}
 
-	var fileId string
-	if len(files.Files) > 0 {
-		fileId = files.Files[0].Id // Latest modified in correct location
-	} else {
-		// Try versions from DB
-		var driveId string
-		err = g.db.QueryRow("SELECT drive_id FROM versions WHERE file_path = ? ORDER BY version_num DESC LIMIT 1", relPath).Scan(&driveId)
-		if err == sql.ErrNoRows {
-			// Also check with absolute path just in case
-			err = g.db.QueryRow("SELECT drive_id FROM versions WHERE file_path = ? ORDER BY version_num DESC LIMIT 1", targetPath).Scan(&driveId)
-		}
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("file not found in Drive or versions: %s", fileName)
-		}
-		if err != nil {
-			return err
-		}
-		fileId = driveId
+	if len(files.Files) == 0 {
+		return fmt.Errorf("file not found in Drive: %s", relPath)
 	}
 
-	// Download the file
+	driveFile := files.Files[0]
+
+	if driveFile.MimeType == "application/vnd.google-apps.folder" {
+		return g.restoreFolder(ctx, driveFile.Id, targetPath)
+	}
+
+	return g.downloadFile(ctx, driveFile.Id, targetPath)
+}
+
+func (g *GDriveProvider) restoreFolder(ctx context.Context, folderId string, targetPath string) error {
+	if err := os.MkdirAll(targetPath, 0755); err != nil {
+		return err
+	}
+
+	query := fmt.Sprintf("'%s' in parents and trashed=false", folderId)
+	r, err := g.srv.Files.List().Q(query).Fields("files(id,name,mimeType)").Do()
+	if err != nil {
+		return err
+	}
+
+	for _, f := range r.Files {
+		dest := filepath.Join(targetPath, f.Name)
+		if f.MimeType == "application/vnd.google-apps.folder" {
+			if err := g.restoreFolder(ctx, f.Id, dest); err != nil {
+				return err
+			}
+		} else {
+			if err := g.downloadFile(ctx, f.Id, dest); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (g *GDriveProvider) downloadFile(ctx context.Context, fileId, targetPath string) error {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return err
+	}
+	
 	resp, err := g.srv.Files.Get(fileId).Download()
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	// Ensure local directory exists
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-		return err
-	}
 
 	// Write to local file
 	out, err := os.Create(targetPath)
@@ -695,5 +712,45 @@ func (g *GDriveProvider) Cleanup(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+func (g *GDriveProvider) ListRemote(ctx context.Context, label string) ([]RemoteFile, error) {
+	// Find the top-level folder for the label
+	folderPath := "aerosync/" + label
+	folderId, err := g.getOrCreateFolder(ctx, folderPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []RemoteFile
+	err = g.listRecursive(ctx, folderId, "", &results)
+	return results, err
+}
+
+func (g *GDriveProvider) listRecursive(ctx context.Context, folderId, relPrefix string, results *[]RemoteFile) error {
+	query := fmt.Sprintf("'%s' in parents and trashed=false", folderId)
+	r, err := g.srv.Files.List().Q(query).Fields("files(id, name, mimeType)").Do()
+	if err != nil {
+		return err
+	}
+
+	for _, f := range r.Files {
+		path := f.Name
+		if relPrefix != "" {
+			path = relPrefix + "/" + f.Name
+		}
+
+		if f.MimeType == "application/vnd.google-apps.folder" {
+			if err := g.listRecursive(ctx, f.Id, path, results); err != nil {
+				return err
+			}
+		} else {
+			*results = append(*results, RemoteFile{
+				Path:    path,
+				DriveID: f.Id,
+			})
+		}
+	}
 	return nil
 }
