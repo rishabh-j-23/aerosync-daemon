@@ -24,7 +24,7 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	configPath := filepath.Join(".", "service.toml") // For testing, use local file
+	configPath := filepath.Join(".", "service.toml") 
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file not found at %s", configPath)
@@ -38,4 +38,18 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func (c *Config) Save() error {
+	configPath := filepath.Join(".", "service.toml")
+	f, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create config file: %w", err)
+	}
+	defer f.Close()
+
+	if err := toml.NewEncoder(f).Encode(c); err != nil {
+		return fmt.Errorf("failed to encode config: %w", err)
+	}
+	return nil
 }

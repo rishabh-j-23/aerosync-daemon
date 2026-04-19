@@ -1,0 +1,13 @@
+# Executables
+*.exe
+*.exe~
+aerosync-service
+bin/
+*.pid
+
+# Local configuration and state (should not be tracked)
+.config/
+metadata.db
+
+# Dependencies
+vendor/
