@@ -5,6 +5,7 @@ import (
 	"aerosync-service/internal/service"
 	"aerosync-service/internal/sync"
 	"aerosync-service/internal/tui"
+	"fmt"
 )
 
 // AerosyncUI holds the state for the TUI application
@@ -30,6 +31,17 @@ func (ui *AerosyncUI) MainMenu() {
 
 		m.AddItem("Backups", func() error {
 			ui.BackupMenu()
+			return nil
+		})
+
+		m.AddItem("Force Sync (All)", func() error {
+			fmt.Println("\nStarting full synchronization...")
+			if err := ui.Service.SyncAll(); err != nil {
+				fmt.Printf("Sync failed: %v\n", err)
+			} else {
+				fmt.Println("Sync completed successfully.")
+			}
+			tui.WaitForEnter()
 			return nil
 		})
 

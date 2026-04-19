@@ -5,6 +5,7 @@ import (
 	"aerosync-service/internal/tui"
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -26,13 +27,14 @@ func (ui *AerosyncUI) SyncPathsMenu() {
 			if path == "" {
 				return nil
 			}
+			path = filepath.ToSlash(path)
 			label := tui.Prompt("Enter label for this backup: ")
 			if label == "" {
 				return nil
 			}
 			ui.Config.SyncPaths = append(ui.Config.SyncPaths, config.SyncPath{Path: path, Label: label})
 			ui.Config.Save()
-			fmt.Println("Path added successfully.")
+			fmt.Printf("Path added successfully: %s\n", path)
 			tui.WaitForEnter()
 			return nil
 		})
@@ -56,11 +58,22 @@ func (ui *AerosyncUI) EditPathMenu(index int) {
 		sp := ui.Config.SyncPaths[index]
 		m := tui.NewMenu(fmt.Sprintf("Editing: %s", sp.Label))
 
+		m.AddItem("Sync now", func() error {
+			fmt.Printf("\nTriggering sync for '%s'...\n", sp.Label)
+			if err := ui.Service.SyncLabel(sp.Label); err != nil {
+				fmt.Printf("Sync failed: %v\n", err)
+			} else {
+				fmt.Println("Sync completed successfully.")
+			}
+			tui.WaitForEnter()
+			return nil
+		})
+
 		m.AddItem(fmt.Sprintf("Local Path: %s", sp.Path), func() error {
 			fmt.Printf("\nCurrent path: %s\n", sp.Path)
 			newPath := tui.Prompt("Enter new local path: ")
 			if newPath != "" {
-				ui.Config.SyncPaths[index].Path = newPath
+				ui.Config.SyncPaths[index].Path = filepath.ToSlash(newPath)
 				ui.Config.Save()
 				fmt.Println("Path updated.")
 				tui.WaitForEnter()

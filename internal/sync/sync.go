@@ -19,34 +19,38 @@ type RemoteFile struct {
 }
 
 type SyncManager struct {
-	provider CloudProvider
+	Provider CloudProvider
 }
 
 func NewSyncManager(provider CloudProvider) *SyncManager {
-	return &SyncManager{provider: provider}
+	return &SyncManager{Provider: provider}
 }
 
 func (sm *SyncManager) SyncPaths(ctx context.Context, paths []config.SyncPath, versioning bool, maxVersions int, ignore []string) error {
 	for _, p := range paths {
-		if err := sm.provider.Sync(ctx, p.Path, p.Label, versioning, maxVersions, ignore); err != nil {
+		if err := sm.Provider.Sync(ctx, p.Path, p.Label, versioning, maxVersions, ignore); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func (sm *SyncManager) SyncSpecific(ctx context.Context, p config.SyncPath, versioning bool, maxVersions int, ignore []string) error {
+	return sm.Provider.Sync(ctx, p.Path, p.Label, versioning, maxVersions, ignore)
+}
+
 func (sm *SyncManager) Restore(ctx context.Context, targetPath string, relPath string, label string, baseName string) error {
-	return sm.provider.Restore(ctx, targetPath, relPath, label, baseName)
+	return sm.Provider.Restore(ctx, targetPath, relPath, label, baseName)
 }
 
 func (sm *SyncManager) Cleanup(ctx context.Context) error {
-	return sm.provider.Cleanup(ctx)
+	return sm.Provider.Cleanup(ctx)
 }
 
 func (sm *SyncManager) ListRemote(ctx context.Context, label string) ([]RemoteFile, error) {
-	return sm.provider.ListRemote(ctx, label)
+	return sm.Provider.ListRemote(ctx, label)
 }
 
 func (sm *SyncManager) RenameLabel(ctx context.Context, oldLabel, newLabel string) error {
-	return sm.provider.RenameLabel(ctx, oldLabel, newLabel)
+	return sm.Provider.RenameLabel(ctx, oldLabel, newLabel)
 }

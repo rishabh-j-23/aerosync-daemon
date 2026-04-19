@@ -99,6 +99,19 @@ func (s *Service) Restore(path string, targetOverride string) error {
 	return s.syncMgr.Restore(s.ctx, destPath, path, syncPath.Label, baseName)
 }
 
+func (s *Service) SyncAll() error {
+	return s.syncMgr.SyncPaths(s.ctx, s.config.SyncPaths, s.config.Versioning, s.config.MaxVersions, s.config.Ignore)
+}
+
+func (s *Service) SyncLabel(label string) error {
+	for _, p := range s.config.SyncPaths {
+		if p.Label == label {
+			return s.syncMgr.Provider.Sync(s.ctx, p.Path, p.Label, s.config.Versioning, s.config.MaxVersions, s.config.Ignore)
+		}
+	}
+	return nil
+}
+
 func (s *Service) IsRunning() bool {
 	data, err := os.ReadFile(s.pidFile)
 	if err != nil {
